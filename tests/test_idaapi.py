@@ -23,7 +23,30 @@ def lpluck(prop, s):
     return list(pluck(prop, s))
 
 
-@kern32_test()
+def kern32_test_gt_v640():
+    return kern32_test(
+        [
+            (650, 32, None),
+            (650, 64, None),
+            (660, 32, None),
+            (660, 64, None),
+            (670, 32, None),
+            (670, 64, None),
+            (680, 32, None),
+            (680, 64, None),
+            (695, 32, None),
+            (695, 64, None),
+            (700, 32, None),
+            (700, 64, None),
+            (720, 32, None),
+            (720, 64, None),
+            (730, 32, None),
+            (730, 64, None),
+        ]
+    )
+
+
+@kern32_test_gt_v640()
 def test_heads(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
 
@@ -36,7 +59,7 @@ def test_heads(kernel32_idb, version, bitness, expected):
     assert idc.PrevHead(first_ea + 2) == first_ea
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_bytes(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
 
@@ -55,8 +78,7 @@ def test_bytes(kernel32_idb, version, bitness, expected):
     # assert idc.hasValue(idc.GetFlags(0x88888888)) is False
 
     assert idc.ItemSize(0x68901010) == 2
-    with pytest.raises(ValueError):
-        idc.ItemSize(0x68901011)
+    assert idc.ItemSize(0x68901011) == 1
     assert idc.ItemSize(0x68901012) == 1
 
     assert idc.GetManyBytes(0x68901010, 0x3) == b"\x8B\xFF\x55"
@@ -76,7 +98,7 @@ def test_bytes_2(elf_idb):
     )
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_state(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
     ida_bytes = idb.IDAPython(kernel32_idb).ida_bytes
@@ -100,7 +122,7 @@ def test_state(kernel32_idb, version, bitness, expected):
     assert ida_bytes.is_head(flags) is False
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_specific_state(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
     ida_bytes = idb.IDAPython(kernel32_idb).ida_bytes
@@ -122,7 +144,7 @@ def test_specific_state(kernel32_idb, version, bitness, expected):
     assert ida_bytes.has_cmt(flags) is True
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_code(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
     ida_bytes = idb.IDAPython(kernel32_idb).ida_bytes
@@ -138,7 +160,7 @@ def test_code(kernel32_idb, version, bitness, expected):
     assert ida_bytes.has_immd(flags) is False
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_data(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
     ida_bytes = idb.IDAPython(kernel32_idb).ida_bytes
@@ -222,7 +244,7 @@ def test_function_name(kernel32_idb, version, bitness, expected):
     )
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_operand_types(kernel32_idb, version, bitness, expected):
     idc = idb.IDAPython(kernel32_idb).idc
 
@@ -314,8 +336,10 @@ def test_func_t(kernel32_idb, version, bitness, expected):
     assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_THUNK) is False
     assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_BOTTOMBP) is False
     assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_NORET_PENDING) is False
-    assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_SP_READY) is True
-    assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_PURGED_OK) is True
+
+    if version > 500:
+        assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_SP_READY) is True
+        assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_PURGED_OK) is True
     assert idb.idapython.is_flag_set(flags, api.ida_funcs.FUNC_TAIL) is False
     # also demonstrate finding the func from an address it may contain.
     # note: this can be a pretty slow search, since we do everything on demand
@@ -328,7 +352,7 @@ def test_func_t(kernel32_idb, version, bitness, expected):
     assert api.ida_funcs.get_func(0x68906156 + 1).startEA == 0x68901695
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_find_bb_end(kernel32_idb, version, bitness, expected):
     # .text:68901695 000 8B FF                                   mov     edi, edi
     # .text:68901697 000 55                                      push    ebp
@@ -351,7 +375,7 @@ def test_find_bb_end(kernel32_idb, version, bitness, expected):
     assert api.idaapi._find_bb_end(0x689016A4) == 0x689016AD
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_find_bb_start(kernel32_idb, version, bitness, expected):
     # .text:68901695 000 8B FF                                   mov     edi, edi
     # .text:68901697 000 55                                      push    ebp
@@ -371,7 +395,7 @@ def test_find_bb_start(kernel32_idb, version, bitness, expected):
     assert api.idaapi._find_bb_start(0x68906227) == 0x68906227
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_flow_preds(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -383,7 +407,7 @@ def test_flow_preds(kernel32_idb, version, bitness, expected):
     assert lpluck("type", api.idaapi._get_flow_preds(0x68906156)) == [api.idaapi.fl_JN]
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_flow_succs(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -401,7 +425,7 @@ def test_flow_succs(kernel32_idb, version, bitness, expected):
     ]
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_flow_chart(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -464,7 +488,7 @@ def test_input_md5(kernel32_idb, version, bitness, expected):
     assert api.ida_nalt.retrieve_input_file_md5() == "00bf1bf1b779ce1af41371426821e0c2"
 
 
-@kern32_test()
+@kern32_test_v7()
 def test_input_sha256(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
     assert (
@@ -477,7 +501,20 @@ def test_input_sha256(kernel32_idb, version, bitness, expected):
     )
 
 
-@kern32_test()
+@kern32_test(
+    [
+        (680, 32, None),
+        (680, 64, None),
+        (695, 32, None),
+        (695, 64, None),
+        (700, 32, None),
+        (700, 64, None),
+        (720, 32, None),
+        (720, 64, None),
+        (730, 32, None),
+        (730, 64, None),
+    ]
+)
 def test_segments(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -503,7 +540,7 @@ def test_segments(kernel32_idb, version, bitness, expected):
     assert seg.endEA == 0x689DB000
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 @requires_capstone
 def test_get_mnem(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
@@ -524,10 +561,11 @@ def test_functions(kernel32_idb, version, bitness, expected):
     # exact number of detected functions varies by IDA version,
     # but the first and last addresses should remain constant.
     assert funcs[0] == 0x68901010
-    assert funcs[-1] == 0x689BD410
+    assert funcs[-1] == 0x689BD410 if version > 500 else 0x689CD6BA
 
     # this is a function chunk. should not be reported.
-    assert 0x689018E5 not in funcs
+    if version > 500:
+        assert 0x689018E5 not in funcs
 
 
 @kern32_test()
@@ -541,13 +579,15 @@ def test_function_names(kernel32_idb, version, bitness, expected):
     )
     assert (
         api.idc.GetFunctionName(0x689016B5) == "sub_689016b5"
-        if version <= 700
+        if 500 < version <= 700
         else "__BaseDllInitialize@12"
     )
 
-    with pytest.raises(KeyError):
-        # this is issue #7.
-        _ = api.idc.GetFunctionName(0x689018E5)
+    if version > 500:
+        with pytest.raises(KeyError):
+            api.idc.GetFunctionName(0x689018E5)
+    else:
+        assert api.idc.GetFunctionName(0x689018E5) == "sub_689018e5"
 
 
 @pytest.mark.slow
@@ -561,7 +601,7 @@ def test_all_function_names(kernel32_idb, version, bitness, expected):
         _ = api.idc.GetFunctionName(func)
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_comments(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -615,7 +655,7 @@ def test_all_comments(kernel32_idb, version, bitness, expected):
 def test_LocByName(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
-    if version <= 700:
+    if 500 < version <= 700:
         assert api.idc.LocByName("CancelIo") == 0x6892E70A
         assert api.idc.GetFunctionName(api.idc.LocByName("CancelIo")) == "CancelIo"
 
@@ -630,7 +670,7 @@ def test_MinMaxEA(kernel32_idb, version, bitness, expected):
     assert api.idc.MaxEA() == 0x689DE230
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_CodeRefsTo(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -646,7 +686,7 @@ def test_CodeRefsTo(kernel32_idb, version, bitness, expected):
     assert set(api.idautils.CodeRefsTo(0x68901012, False)) == set([])
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_CodeRefsFrom(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -700,7 +740,7 @@ def test_DataRefsTo(kernel32_idb, version, bitness, expected):
     }
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_XrefsTo(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -756,7 +796,7 @@ def test_XrefsTo(kernel32_idb, version, bitness, expected):
     }
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_XrefsFrom(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
 
@@ -799,6 +839,20 @@ def test_XrefsFrom(kernel32_idb, version, bitness, expected):
     assert set(api.idautils.XrefsFrom(0x6894F4BC, api.idaapi.XREF_DATA)) == {
         (0x6894F4BC, 0x689AE1DC, 0x1)
     }
+
+
+@kern32_test()
+def test_FindFuncEnd(kernel32_idb, version, bitness, expected):
+    api = idb.IDAPython(kernel32_idb)
+
+    # this is the start of a function
+    assert api.idc.FindFuncEnd(0x68901C31) == 0x68901C3D
+
+    # this is in the middle of a function
+    assert api.idc.FindFuncEnd(0x6890443F) == 0x6890445C
+
+    # this is not inside a function
+    assert api.idc.FindFuncEnd(0x6896EBF4) == api.idc.BADADDR
 
 
 @kern32_test()
@@ -846,9 +900,9 @@ def test_GetType(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
     assert (
         api.idc.GetType(0x68901695)
-        == "BOOL __stdcall DllEntryPoint(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)"
+        == "BOOL (__stdcall DllEntryPoint)(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)"
         if version <= 700
-        else "BOOL __stdcall _BaseDllInitialize@12(HINSTANCE hinstDLL, #E fdwReason, LPVOID lpReserved)"
+        else "BOOL (__stdcall _BaseDllInitialize@12)(HINSTANCE hinstDLL, #5 fdwReason, LPVOID lpReserved)"
     )
 
     # valid function, but no type data associated...
@@ -864,7 +918,7 @@ def test_GetType(kernel32_idb, version, bitness, expected):
 def test_inf_structure(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
     inf_structure = api.idaapi.get_inf_structure()
-    assert inf_structure.procName == "metapc"
+    assert inf_structure.procname == "metapc"
 
 
 @requires_capstone
@@ -878,7 +932,7 @@ def test_multi_bitness():
         assert api.idc.GetDisasm(0x1000) == "xor\tedx, edx"  # 32-bit
 
 
-@kern32_test()
+@kern32_test_gt_v640()
 def test_name(kernel32_idb, version, bitness, expected):
     api = idb.IDAPython(kernel32_idb)
     assert api.ida_bytes.has_name(api.ida_bytes.get_flags(0x689DB190)) == True
@@ -939,9 +993,14 @@ def test_function_comment():
 def test_ida_structs(kernel32_idb, version, bitness, expected):
     idapy = idb.IDAPython(kernel32_idb)
     assert idapy.ida_struct.get_first_struc_idx() == 0
-    if version <= 700:
-        assert idapy.ida_struct.get_last_struc_idx() == 0x29
+    last_idx = idapy.ida_struct.get_last_struc_idx()
+    if version == 500:
+        assert last_idx == 23
+    elif version <= 630:
+        assert last_idx == 31
+    elif version <= 700:
+        assert last_idx == 0x29
     elif version == 720:
-        assert idapy.ida_struct.get_last_struc_idx() == 68
+        assert last_idx == 68
     elif version == 730:
-        assert idapy.ida_struct.get_last_struc_idx() == 0x50
+        assert last_idx == 0x50

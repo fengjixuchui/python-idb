@@ -1,5 +1,17 @@
+import functools
+import re
+
 import idb.analysis
 from fixtures import *
+from idb.typeinf_flags import *
+
+try:
+    from re import fullmatch
+except ImportError:
+
+    def fullmatch(regex, string, flags=0):
+        """Emulate python-3.4 re.fullmatch()."""
+        return re.match("(?:" + regex + r")\Z", string, flags=flags)
 
 
 def pluck(prop, s):
@@ -28,7 +40,7 @@ def lpluck(prop, s):
 def test_root(kernel32_idb, version, bitness, expected):
     root = idb.analysis.Root(kernel32_idb)
 
-    assert root.version in (695, 700)
+    assert root.version in (480, 610, 640, 650, 670, 680, 695, 700)
     assert root.get_field_tag("version") == "A"
     assert root.get_field_index("version") == -1
 
@@ -38,25 +50,18 @@ def test_root(kernel32_idb, version, bitness, expected):
     assert root.md5 == "00bf1bf1b779ce1af41371426821e0c2"
 
 
-@kern32_test(
-    [
-        (695, 32, "2017-06-20T22:31:34"),
-        (695, 64, "2017-07-10T01:36:23"),
-        (700, 32, "2017-07-10T18:28:22"),
-        (700, 64, "2017-07-10T21:37:15"),
-    ]
-)
+@kern32_test()
 def test_root_timestamp(kernel32_idb, version, bitness, expected):
     root = idb.analysis.Root(kernel32_idb)
-    assert root.created.isoformat() == expected
+    actual = root.created.isoformat()
+    pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    assert fullmatch(pattern, actual) is not None
 
 
-@kern32_test(
-    [(695, 32, 1), (695, 64, 1), (700, 32, 1), (700, 64, 1),]
-)
+@kern32_test()
 def test_root_open_count(kernel32_idb, version, bitness, expected):
     root = idb.analysis.Root(kernel32_idb)
-    assert root.open_count == expected
+    assert root.open_count in (2, 1)
 
 
 @kern32_test(
@@ -115,9 +120,7 @@ def test_function_frame(kernel32_idb, version, bitness, expected):
     assert DllEntryPoint.frame == expected
 
 
-@kern32_test(
-    [(695, 32, None), (695, 64, None), (700, 32, None), (700, 64, None),]
-)
+@kern32_test()
 def test_struct(kernel32_idb, version, bitness, expected):
     # ; BOOL __stdcall DllEntryPoint(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)
     # .text:68901695                                         public DllEntryPoint
@@ -139,7 +142,11 @@ def test_struct(kernel32_idb, version, bitness, expected):
         "lpReserved",
     ]
 
-    assert members[2].get_type() == "HINSTANCE"
+    assert members[2].get_type() == ("HINSTANCE" if version > 500 else None)
+
+
+def _check_functype(db, fva, _type):
+    return idb.analysis.Function(db, fva).get_signature().get_typestr() == _type
 
 
 @kern32_test()
@@ -169,7 +176,7 @@ def test_function(kernel32_idb, version, bitness, expected):
     # .text:689016B8 8B EC                                   mov     ebp, esp
     # .text:689016BA 81 EC 14 02 00 00                       sub     esp, 214h
     sub_689016B5 = idb.analysis.Function(kernel32_idb, 0x689016B5)
-    if version <= 700:
+    if 500 < version <= 700:
         assert sub_689016B5.get_name() == "sub_689016B5"
     else:
         assert sub_689016B5.get_name() == "__BaseDllInitialize@12"
@@ -199,19 +206,133 @@ def test_function(kernel32_idb, version, bitness, expected):
     DllEntryPoint = idb.analysis.Function(kernel32_idb, 0x68901695)
 
     sig = DllEntryPoint.get_signature()
-    assert sig.calling_convention == "__stdcall"
-    assert sig.rtype == "BOOL"
-    assert len(sig.parameters) == 3
-    assert (
-        list(map(lambda p: p.type, sig.parameters)) == ["HINSTANCE", "DWORD", "LPVOID",]
-        if version <= 700
-        else ["HINSTANCE", "#E", "LPVOID",]
+    if version <= 700:
+        assert (
+            sig.get_typestr()
+            == "BOOL (__stdcall DllEntryPoint)(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)"
+        )
+    else:
+        assert (
+            sig.get_typestr()
+            == "BOOL (__stdcall _BaseDllInitialize@12)(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)"
+        )
+
+    assert sig.get_cc() == CM_CC_STDCALL
+    assert sig.get_rettype().get_typename() == "BOOL"
+    assert len(sig.type_details.args) == 3
+
+    check_functype = functools.partial(_check_functype, kernel32_idb)
+
+    if version >= 730:
+        assert check_functype(
+            0x68901551,
+            "void (__fastcall @__security_check_cookie@4)(uintptr_t StackCookie)",
+        )
+        assert check_functype(
+            0x68901637, "void* (__cdecl _memset)(void*, int Val, size_t Size)"
+        )
+        assert check_functype(
+            0x689031AE,
+            "int (__thiscall ?NotifyLoadStringResource@CMessageMapper@FSPErrorMessages@@QAEJPAUHINSTANCE__@@IPBGKPAPAX@Z)(FSPErrorMessages::CMessageMapper* this, HINSTANCE CriticalSection, unsigned int, unsigned int16*, unsigned int, void**)",
+        )
+    elif version >= 720:
+        assert check_functype(
+            0x68936AEC,
+            "int (__stdcall _BasepProcessInvalidImage@84)(NTSTATUS Status, int, int, int, int, int, int, int, int, int, int, int, int, int, PUNICODE_STRING, int, int, int, int, int, int)",
+        )
+        assert check_functype(
+            0x68901637, "void* (__cdecl _memset)(void* Dst, int Val, size_t Size)"
+        )
+        assert check_functype(
+            0x689031AE,
+            "int (__thiscall ?NotifyLoadStringResource@CMessageMapper@FSPErrorMessages@@QAEJPAUHINSTANCE__@@IPBGKPAPAX@Z)(FSPErrorMessages::CMessageMapper* this, HINSTANCE CriticalSection, unsigned int, unsigned int16*, unsigned int, void**)",
+        )
+    elif version >= 700:
+        assert check_functype(
+            0x68936AEC,
+            "int (__cdecl BasepProcessInvalidImage)(NTSTATUS NtStatus, int, int, int, int, int, int, int, int, int, int, int, int, int, PUNICODE_STRING, int, int, int, int, int, int)",
+        )
+        assert check_functype(
+            0x68904AED, "int (__thiscall sub_68904AED)(HANDLE FileHandle, int, int)"
+        )
+    elif version > 630:
+        assert check_functype(
+            0x68915529, "int (__cdecl sub_68915529)(LPCWSTR lpString1, int, int)"
+        )
+        assert check_functype(
+            0x68904AED, "int (__thiscall sub_68904AED)(HANDLE FileHandle, int, int)"
+        )
+    elif 630 == version:
+        assert check_functype(
+            0x68915529, "int (__cdecl sub_68915529)(PCNZWCH Buf1, int, int)"
+        )
+        assert check_functype(
+            0x689172CF, "int (__thiscall sub_689172CF)(DWORD Size, int, int, int, int)"
+        )
+    elif version == 500:
+        assert check_functype(
+            0x68903158,
+            "int (__fastcall _BasepNotifyLoadStringResource@16)(int, int, int, int, int, int)",
+        )
+        assert check_functype(
+            0x68906511, "int (__cdecl _StringCbPrintfW)(wchar_t*, int, wchar_t*, int8)"
+        )
+
+
+def test_function_usercall():
+    _db = load_idb(os.path.join(CD, "data", "thumb", "ls.idb"))
+    check_functype = functools.partial(_check_functype, _db)
+
+    # unsigned __int8 *__usercall human_readable@<R0>(
+    #   uintmax_t n@<0:R0, 4:R1>,
+    #   unsigned __int8 *buf@<R2>,
+    #   int opts@<R3>,
+    #   uintmax_t from_block_size,
+    #   uintmax_t to_block_size
+    # )
+    assert check_functype(
+        0x181F8,
+        "unsigned int8* (__usercall human_readable@<R0>)(uintmax_t n@<0:R0, 4:R1>, unsigned int8* buf@<R2>, int opts@<R3>, uintmax_t from_block_size, uintmax_t to_block_size)",
     )
-    assert list(map(lambda p: p.name, sig.parameters)) == [
-        "hinstDLL",
-        "fdwReason",
-        "lpReserved",
-    ]
+
+    # unsigned __int8 *__usercall imaxtostr@<R0>(intmax_t i@<0:R0, 4:R1>, unsigned __int8 *buf@<R2>)
+    assert check_functype(
+        0x18D94,
+        "unsigned int8* (__usercall imaxtostr@<R0>)(intmax_t i@<0:R0, 4:R1>, unsigned int8* buf@<R2>)",
+    )
+
+    # unsigned __int8 *__usercall umaxtostr@<R0>(uintmax_t i@<0:R0, 4:R1>, unsigned __int8 *buf@<R2>)
+    assert check_functype(
+        0x18E00,
+        "unsigned int8* (__usercall umaxtostr@<R0>)(uintmax_t i@<0:R0, 4:R1>, unsigned int8* buf@<R2>)",
+    )
+
+    # uintmax_t __usercall xnumtoumax@<R1:R0>(
+    #   const unsigned __int8 *n_str@<R0>,
+    #   int base@<R1>,
+    #   uintmax_t min@<0:R2, 4:R3>,
+    #   uintmax_t max,
+    #   const unsigned __int8 *suffixes,
+    #   const unsigned __int8 *err,
+    #   int err_exit
+    # )
+    assert check_functype(
+        0x1B944,
+        "uintmax_t (__usercall xnumtoumax@<R1:R0>)(unsigned int8* n_str@<R0>, int base@<R1>, uintmax_t min@<0:R2, 4:R3>, uintmax_t max, unsigned int8* suffixes, unsigned int8* err, int err_exit)",
+    )
+
+    # uintmax_t __usercall xdectoumax@<R1:R0>(
+    #   const unsigned __int8 *n_str@<R0>,
+    #   uintmax_t min@<0:R2, 4:R3>,
+    #   uintmax_t max,
+    #   const unsigned __int8 *suffixes,
+    #   const unsigned __int8 *err,
+    #   int err_exit
+    # )
+    assert check_functype(
+        0x1BA54,
+        "uintmax_t (__usercall xdectoumax@<R1:R0>)(unsigned int8* n_str@<R0>, uintmax_t min@<0:R2, 4:R3>, uintmax_t max, unsigned int8* suffixes, unsigned int8* err, int err_exit)",
+    )
 
 
 @kern32_test()
@@ -298,9 +419,8 @@ def test_xrefs(kernel32_idb, version, bitness, expected):
     )
 
 
-@kern32_test(
-    [(695, 32, None), (695, 64, None), (700, 32, None), (700, 64, None),]
-)
+@pytest.mark.skipif(six.PY2, reason="it consumes too much memory")
+@kern32_test()
 def test_fixups(kernel32_idb, version, bitness, expected):
     fixups = idb.analysis.Fixups(kernel32_idb).fixups
     assert len(fixups) == 31608
@@ -320,14 +440,31 @@ def test_segments(kernel32_idb, version, bitness, expected):
         0x689DB000,
         0x689DD000,
     ]
-    assert list(sorted(map(lambda s: s.endEA, segs.values()))) == [
-        0x689DB000,
-        0x689DD000,
-        0x689DE230,
+    end_ea = list(sorted(map(lambda s: s.endEA, segs.values())))
+    if version > 500:
+        assert end_ea == [
+            0x689DB000,
+            0x689DD000,
+            0x689DE230,
+        ]
+    else:
+        assert end_ea == [1755164672, 1755169504, 1755177520]
+
+
+@kern32_test(
+    [
+        (680, 32, None),
+        (680, 64, None),
+        (695, 32, None),
+        (695, 64, None),
+        (700, 32, None),
+        (700, 64, None),
+        (720, 32, None),
+        (720, 64, None),
+        (730, 32, None),
+        (730, 64, None),
     ]
-
-
-@kern32_test()
+)
 def test_segstrings(kernel32_idb, version, bitness, expected):
     strs = idb.analysis.SegStrings(kernel32_idb).strings
 
@@ -581,12 +718,20 @@ def test_entrypoints2(kernel32_idb, version, bitness, expected):
 
     assert len(entrypoints) == 1572
     assert entrypoints[0] == ("BaseThreadInitThunk", 0x6890172D, 1, None)
-    assert entrypoints[-100] == (
-        "WaitForThreadpoolWorkCallbacks",
-        0x689DAB51,
-        1473,
-        "NTDLL.TpWaitForWork",
-    )
+    if version > 680:
+        assert entrypoints[-100] == (
+            "WaitForThreadpoolWorkCallbacks",
+            0x689DAB51,
+            1473,
+            "NTDLL.TpWaitForWork",
+        )
+    else:
+        assert entrypoints[-100] == (
+            "WaitForThreadpoolWorkCallbacks",
+            0x689DAB51,
+            1473,
+            None,
+        )
     if version <= 700:
         assert entrypoints[-1] == ("DllEntryPoint", 0x68901696, None, None)
     else:
@@ -601,21 +746,24 @@ def test_idainfo(kernel32_idb, version, bitness, expected):
         assert idainfo.tag == "IDA"
     elif version == 700:
         assert idainfo.tag == "ida"
-    assert idainfo.version == min(version, 700)
+    assert 480 <= idainfo.version <= 700
     assert idainfo.procname == "metapc"
 
     # Portable Executable (PE)
     assert idainfo.filetype == 11
-    if version == 695:
+    if version <= 695:
         assert idainfo.af == 0xFFFF
         assert idainfo.ascii_break == ord("\n")
-        # Visual C++
-        assert idainfo.compiler == 0x01
+        if version == 630:
+            assert idainfo.compiler == 129
+        else:
+            assert idainfo.compiler == 0x01
         assert idainfo.sizeof_int == 4
-        assert idainfo.sizeof_bool == 1
+        assert idainfo.sizeof_bool in (1, 4)
         assert idainfo.sizeof_long == 4
         assert idainfo.sizeof_llong == 8
-        assert idainfo.sizeof_ldbl == 8
+        if version > 500:
+            assert idainfo.sizeof_ldbl == 8
     elif version >= 700:
         assert idainfo.af == 0xDFFFFFF7
         assert idainfo.strlit_break == ord("\n")
@@ -631,43 +779,6 @@ def test_idainfo(kernel32_idb, version, bitness, expected):
         assert idainfo.cc_size_l == 4
         assert idainfo.cc_size_ll == 8
         assert idainfo.cc_size_ldbl == 8
-
-
-@kern32_test(
-    [
-        if_exists(720, 32, None),
-        if_exists(720, 64, None),
-        if_exists(730, 32, None),
-        if_exists(730, 64, None),
-        if_exists(740, 32, None),
-        if_exists(740, 64, None),
-        if_exists(750, 32, None),
-        if_exists(750, 64, None),
-    ]
-)
-def test_idainfo720plus(kernel32_idb, version, bitness, expected):
-    idainfo = idb.analysis.Root(kernel32_idb).idainfo
-
-    assert idainfo.tag == "IDA"
-    assert idainfo.version == 700
-    assert idainfo.procname == "metapc"
-
-    # Portable Executable (PE)
-    assert idainfo.filetype == 11
-    assert idainfo.af in (0xFFFFFFF7, 0xDFFFFFF7)
-    assert idainfo.strlit_break == ord("\n")
-
-    assert idainfo.maxref == 16
-    assert idainfo.netdelta == 0
-    assert idainfo.xrefnum in (2, 0)
-    assert idainfo.xrefflag == 0xF
-    # Visual C++
-    assert idainfo.cc_id == 0x01
-    assert idainfo.cc_size_i == 4
-    assert idainfo.cc_size_b == 1
-    assert idainfo.cc_size_l == 4
-    assert idainfo.cc_size_ll == 8
-    assert idainfo.cc_size_ldbl == 8
 
 
 def test_idainfo_multibitness():
